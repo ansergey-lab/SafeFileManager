@@ -98,14 +98,11 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install Semgrep
+      - name: Install Semgrep and run security analysis
         run: |
           sudo apt-get update
           sudo apt-get install -y pipx
-          pipx install semgrep
-
-      - name: Run security analysis
-        run: $HOME/.local/bin/semgrep scan --config p/security-audit --severity ERROR --error .
+          pipx run --spec semgrep semgrep scan --config p/security-audit --severity ERROR --error .
 
   deploy:
     name: Docker build
