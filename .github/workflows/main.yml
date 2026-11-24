@@ -1,0 +1,111 @@
+﻿name: SafeFileManager CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('SafeFileManager.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore SafeFileManager.csproj
+
+      - name: Build and publish
+        run: dotnet publish SafeFileManager.csproj -c Release -o publish --no-restore
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: safefilemanager-publish
+          path: publish/
+          retention-days: 7
+
+  test:
+    name: Startup test
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: safefilemanager-publish
+          path: publish/
+
+      - name: Check application startup
+        shell: bash
+        run: |
+          set -o pipefail
+          printf '0\n' | timeout 15s dotnet publish/SafeFileManager.dll | tee startup.log
+          grep -q 'SAFE FILE MANAGER' startup.log
+          grep -q 'Зарегистрироваться' startup.log
+
+      - name: Upload startup log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-test-log
+          path: startup.log
+          if-no-files-found: ignore
+
+  sast:
+    name: SAST security scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Semgrep
+        run: python -m pip install semgrep
+
+      - name: Run security analysis
+        run: semgrep scan --config p/security-audit --severity ERROR --error .
+
+  deploy:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [build, test, sast]
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t safe-file-manager:${{ github.sha }} .
+
+      - name: Save Docker image
+        run: docker save safe-file-manager:${{ github.sha }} -o safe-file-manager-image.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: safe-file-manager-docker-image
+          path: safe-file-manager-image.tar
+          retention-days: 7
