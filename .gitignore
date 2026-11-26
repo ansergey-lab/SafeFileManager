@@ -7,3 +7,6 @@ obj/
 filemanager.db
 Files/
 .env
+
+SafeFileManager.Tests/TestResults/
+semgrep-report.json
